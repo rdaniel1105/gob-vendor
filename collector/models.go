@@ -2,8 +2,6 @@ package collector
 
 import (
 	"time"
-
-	"github.com/rdaniel1105/gob-vendor/client"
 )
 
 // AdquisitionType is the type for "tipo adquisición"
@@ -52,10 +50,10 @@ type ListItem struct {
 	StartDate          string
 	EndDate            string
 	Link               string
-	client             *client.Client
 	viewState          string
 	eventValidation    string
 	viewStateGenerator string
+	Page               int64
 }
 
 type Detail struct {
@@ -82,4 +80,6 @@ type Detail struct {
 	Description    string  `json:"description"`
 	Specifications string  `json:"specifications"`
 	Quantity       float64 `json:"quantity"`
+
+	Page int64 `json:"page"`
 }

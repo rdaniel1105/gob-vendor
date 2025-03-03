@@ -6,10 +6,11 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
-	"runtime"
 	"strconv"
+	"sync"
 
 	"github.com/rdaniel1105/gob-vendor/client"
+	"github.com/rdaniel1105/gob-vendor/env"
 	"github.com/rdaniel1105/gob-vendor/webscraper"
 )
 
@@ -87,7 +88,11 @@ var (
 	// PaginationEventArgument is the argument for the pagination event
 	PaginationEventArgument = "Page$%d"
 
-	maxPaginationConcurrency = runtime.NumCPU() / 2
+	setCredentialsOnce sync.Once
+
+	admin         string
+	password      string
+	zincSearchURL string
 )
 
 type Fetcher struct {
@@ -143,7 +148,16 @@ func (f *Fetcher) GetPages() int64 {
 	return f.pages
 }
 
+func setCredentials() {
+	zincSearchURL = env.GetString("ZINCSEARCH_URL", "")
+
+	admin = env.GetString("ZINCSEARCH_USERNAME", "")
+	password = env.GetString("ZINCSEARCH_PASSWORD", "")
+}
+
 func (f *Fetcher) Execute(ctx context.Context, pageNumber int64) error {
+	setCredentialsOnce.Do(setCredentials)
+
 	err := f.doInintialRequest(ctx)
 	if err != nil {
 		return err
@@ -245,8 +259,12 @@ func (f *Fetcher) getPageDetails(ctx context.Context, page *webscraper.WebPage, 
 			f.viewState,
 			f.eventValidation,
 			f.viewStateGenerator,
-			f.client,
+			pageNumber,
 		))
+	}
+
+	if len(detailsURLs) == 0 {
+		return nil, ErrNotFound
 	}
 
 	if len(detailsURLs) >= 30 && pageNumber == 1 {
@@ -262,10 +280,6 @@ func (f *Fetcher) getPageDetails(ctx context.Context, page *webscraper.WebPage, 
 		if err != nil {
 			return nil, err
 		}
-	}
-
-	if len(detailsURLs) == 0 {
-		return nil, ErrNotFound
 	}
 
 	return detailsURLs, nil

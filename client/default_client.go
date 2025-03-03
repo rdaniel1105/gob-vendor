@@ -22,7 +22,7 @@ var (
 	// DefaultRoundTripper for the client
 	DefaultRoundTripper http.RoundTripper
 
-	httpClientTimeout = 15 * time.Second
+	httpClientTimeout = time.Duration(env.GetInt64("HTTP_CLIENT_TIMEOUT", 30)) * time.Second
 
 	httpClientRetries = int(env.GetInt64("HTTP_CLIENT_RETRIES", 3))
 

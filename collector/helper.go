@@ -3,6 +3,7 @@ package collector
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"runtime"
 	"strconv"
@@ -11,7 +12,6 @@ import (
 	"time"
 
 	"github.com/rdaniel1105/gob-vendor/client"
-	"github.com/rdaniel1105/gob-vendor/storage"
 	"github.com/rdaniel1105/gob-vendor/webscraper"
 )
 
@@ -33,9 +33,23 @@ const (
 	dateLayout = "02/01/2006 03:04:05 PM"
 )
 
-var maxDetailsConcurrency = runtime.NumCPU() / 2
+var (
+	maxDetailsConcurrency = runtime.NumCPU()
+)
 
-func NewDetail(expedientID, entity, unit, object, startDate, endDate, link, viewState, eventValidation, viewStateGenerator string, client *client.Client) *ListItem {
+func NewDetail(
+	expedientID,
+	entity,
+	unit,
+	object,
+	startDate,
+	endDate,
+	link,
+	viewState,
+	eventValidation,
+	viewStateGenerator string,
+	page int64,
+) *ListItem {
 	return &ListItem{
 		ExpedientID:        expedientID,
 		Entity:             entity,
@@ -44,73 +58,110 @@ func NewDetail(expedientID, entity, unit, object, startDate, endDate, link, view
 		StartDate:          startDate,
 		EndDate:            endDate,
 		Link:               link,
-		client:             client,
 		viewState:          viewState,
 		eventValidation:    eventValidation,
 		viewStateGenerator: viewStateGenerator,
 	}
 }
 
-func (d *ListItem) IndexDetail() error {
+func (d *ListItem) getDetailToIndex() (string, error) {
 	url := DetailsURL + d.Link
 
-	response, err := d.client.Get(context.Background(), url, nil, nil)
+	newClient, err := client.New()
 	if err != nil {
-		slog.Error("error getting detail", "error", err)
-		return err
+		return "", err
 	}
 
-	page := webscraper.NewWebPage(url, d.client, slog.Default())
+	response, err := newClient.Get(context.Background(), url, nil, nil)
+	if err != nil {
+		slog.Error("error getting detail", "error", err)
+		return "", err
+	}
+
+	page := webscraper.NewWebPage(url, newClient, slog.Default())
 
 	err = page.LoadFromResponse(context.Background(), response)
 	if err != nil {
 		slog.Error("error loading detail", "error", err)
-		return err
+		return "", err
 	}
 
-	err = setData(&page)
+	detail, err := setData(&page, d.Page)
 	if err != nil {
 		slog.Error("error setting detail", "error", err)
-		return err
+		return "", err
 	}
 
-	return nil
+	data, err := json.Marshal(detail)
+	if err != nil {
+		slog.Error("error marshalling detail", "error", err)
+		return "", err
+	}
+
+	return string(data), nil
 }
 
 func sendDetails(details []*ListItem) error {
 	wg := sync.WaitGroup{}
 
+	errs := make([]error, 0, len(details))
+
 	semaphore := make(chan struct{}, maxDetailsConcurrency)
 	errChan := make(chan error)
+	detailSender := make(chan string)
 
-	for _, detail := range details {
-		wg.Add(1)
+	wg.Add(1)
+	go detailsChunkSender(detailSender, &wg)
 
-		go func(detail *ListItem) {
-			defer wg.Done()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		var detailWg sync.WaitGroup
+
+		for _, detail := range details {
 			semaphore <- struct{}{}
-			err := detail.IndexDetail()
-			if err != nil {
-				errChan <- err
-			}
-			<-semaphore
-		}(detail)
-	}
+			detailWg.Add(1)
 
-	wg.Wait()
+			go func(d *ListItem) {
+				defer func() {
+					<-semaphore
+					detailWg.Done()
+				}()
 
-	close(errChan)
+				data, err := d.getDetailToIndex()
+				if err != nil {
+					errChan <- err
+					return
+				}
+
+				detailSender <- data
+			}(detail)
+		}
+
+		detailWg.Wait()
+
+		close(detailSender)
+	}()
+
+	go func() {
+		wg.Wait()
+		close(errChan)
+	}()
 
 	for err := range errChan {
-		if err != nil {
-			return err
-		}
+		errs = append(errs, err)
+	}
+
+	finalErr := errors.Join(errs...)
+
+	if finalErr != nil {
+		return finalErr
 	}
 
 	return nil
 }
 
-func setData(page *webscraper.WebPage) error {
+func setData(page *webscraper.WebPage, pageNumber int64) (*Detail, error) {
 	generalData := page.GetElementsBySelector(generalTableSelector)
 
 	var (
@@ -142,17 +193,17 @@ func setData(page *webscraper.WebPage) error {
 
 	startDate, err := getDate(generalData[4].Find(detailGeneralDataValueSelector).Text())
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	receptionDate, err := getDate(generalData[5].Find(detailGeneralDataValueSelector).Text())
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	endDate, err := getDate(generalData[6].Find(detailGeneralDataValueSelector).Text())
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	detail := &Detail{
@@ -178,14 +229,10 @@ func setData(page *webscraper.WebPage) error {
 		Description:     description,
 		Specifications:  specifications,
 		Quantity:        strToFloat(quantity),
+		Page:            pageNumber,
 	}
 
-	data, err := json.Marshal(detail)
-	if err != nil {
-		return err
-	}
-
-	return storage.NewXLSXClient().Save(context.Background(), data, detail.IDUNSPSC)
+	return detail, nil
 }
 
 func strToFloat(s string) float64 {

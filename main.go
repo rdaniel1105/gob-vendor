@@ -16,9 +16,11 @@ import (
 )
 
 var (
-	maxPaginationConcurrency = runtime.NumCPU()
+	maxPaginationConcurrency = runtime.NumCPU() / 2
 
-	sleepTime = 8 * time.Second
+	sleepTime              = 10 * time.Second
+	longerSleepTime        = 25 * time.Second
+	pagesBeforeLongerSleep = 20
 
 	errGoDotenvLoad = errors.New("error loading .env file")
 )
@@ -63,11 +65,15 @@ func processAllPages(ctx context.Context, pages int64) error {
 
 				err = fetcher.Execute(ctx, pageNum)
 				if err != nil {
-					errChan <- err
+					errChan <- fmt.Errorf("error fetching page %d: %w", pageNum, err)
 				}
 			}(i)
 
-			time.Sleep(sleepTime)
+			if (i-1)%int64(pagesBeforeLongerSleep) == 0 {
+				time.Sleep(longerSleepTime)
+			} else {
+				time.Sleep(sleepTime)
+			}
 		}
 	}()
 

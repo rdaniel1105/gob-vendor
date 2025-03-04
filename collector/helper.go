@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/PuerkitoBio/goquery"
 	"github.com/rdaniel1105/gob-vendor/client"
 	"github.com/rdaniel1105/gob-vendor/webscraper"
 )
@@ -61,6 +62,7 @@ func NewDetail(
 		viewState:          viewState,
 		eventValidation:    eventValidation,
 		viewStateGenerator: viewStateGenerator,
+		Page:               page,
 	}
 }
 
@@ -191,40 +193,40 @@ func setData(page *webscraper.WebPage, pageNumber int64) (*Detail, error) {
 		quantity = quantityElements[0].Text()
 	}
 
-	startDate, err := getDate(generalData[4].Find(detailGeneralDataValueSelector).Text())
+	startDate, err := getDate(getGeneralDataFieldText(generalData, detailGeneralDataValueSelector, 4))
 	if err != nil {
 		return nil, err
 	}
 
-	receptionDate, err := getDate(generalData[5].Find(detailGeneralDataValueSelector).Text())
+	receptionDate, err := getDate(getGeneralDataFieldText(generalData, detailGeneralDataValueSelector, 5))
 	if err != nil {
 		return nil, err
 	}
 
-	endDate, err := getDate(generalData[6].Find(detailGeneralDataValueSelector).Text())
+	endDate, err := getDate(getGeneralDataFieldText(generalData, detailGeneralDataValueSelector, 6))
 	if err != nil {
 		return nil, err
 	}
 
 	detail := &Detail{
-		ExpedientID:     generalData[0].Find(detailGeneralDataValueSelector).Text(),
-		Entity:          generalData[1].Find(detailGeneralDataValueSelector).Text(),
-		Unit:            generalData[2].Find(detailGeneralDataValueSelector).Text(),
-		Object:          generalData[3].Find(detailGeneralDataValueSelector).Text(),
+		ExpedientID:     getGeneralDataFieldText(generalData, detailGeneralDataValueSelector, 0),
+		Entity:          getGeneralDataFieldText(generalData, detailGeneralDataValueSelector, 1),
+		Unit:            getGeneralDataFieldText(generalData, detailGeneralDataValueSelector, 2),
+		Object:          getGeneralDataFieldText(generalData, detailGeneralDataValueSelector, 3),
 		StartDate:       startDate,
 		ReceptionDate:   receptionDate,
 		EndDate:         endDate,
-		SourceType:      generalData[7].Find(detailGeneralDataValueSelector).Text(),
-		Source:          generalData[8].Find(detailGeneralDataValueSelector).Text(),
-		Category:        AdquisitionCategory(generalData[9].Find(detailGeneralDataValueSelector).Text()),
-		Stage:           AdquisitionStage(generalData[10].Find(detailGeneralDataValueSelector).Text()),
-		AcquisitionType: AdquisitionType(generalData[11].Find(detailGeneralDataValueSelector).Text()),
-		ReceptionPlace:  generalData[12].Find(detailGeneralDataValueSelector).Text(),
-		Currency:        CurrencyType(generalData[13].Find(detailCurrencySelector).Text()),
-		TenderCost:      strToFloat(generalData[13].Find(detailValueSelector).Text()),
-		ContactName:     generalData[14].Find(detailContactNameSelector).Text(),
-		ContactPhone:    generalData[14].Find(detailContactPhoneSelector).Text(),
-		ContactEmail:    generalData[14].Find(detailContactEmailSelector).Text(),
+		SourceType:      getGeneralDataFieldText(generalData, detailGeneralDataValueSelector, 7),
+		Source:          getGeneralDataFieldText(generalData, detailGeneralDataValueSelector, 8),
+		Category:        AdquisitionCategory(getGeneralDataFieldText(generalData, detailGeneralDataValueSelector, 9)),
+		Stage:           AdquisitionStage(getGeneralDataFieldText(generalData, detailGeneralDataValueSelector, 10)),
+		AcquisitionType: AdquisitionType(getGeneralDataFieldText(generalData, detailGeneralDataValueSelector, 11)),
+		ReceptionPlace:  getGeneralDataFieldText(generalData, detailGeneralDataValueSelector, 12),
+		Currency:        CurrencyType(getGeneralDataFieldText(generalData, detailCurrencySelector, 13)),
+		TenderCost:      strToFloat(getGeneralDataFieldText(generalData, detailValueSelector, 13)),
+		ContactName:     getGeneralDataFieldText(generalData, detailContactNameSelector, 14),
+		ContactPhone:    getGeneralDataFieldText(generalData, detailContactPhoneSelector, 14),
+		ContactEmail:    getGeneralDataFieldText(generalData, detailContactEmailSelector, 14),
 		IDUNSPSC:        idUNSPSC,
 		Description:     description,
 		Specifications:  specifications,
@@ -233,6 +235,16 @@ func setData(page *webscraper.WebPage, pageNumber int64) (*Detail, error) {
 	}
 
 	return detail, nil
+}
+
+func getGeneralDataFieldText(generalData []*goquery.Selection, selector string, index int) string {
+	if len(generalData) <= index {
+		return ""
+	}
+
+	element := generalData[index].Find(selector)
+
+	return element.Text()
 }
 
 func strToFloat(s string) float64 {

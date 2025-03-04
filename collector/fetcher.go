@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"net/url"
 	"strconv"
 	"sync"
@@ -107,6 +108,7 @@ type Fetcher struct {
 	eventValidation     string
 	eventTarget         string
 	eventArgument       string
+	Cookies             string
 }
 
 func NewFetcher(
@@ -209,6 +211,8 @@ func (f *Fetcher) doSearchRequest(ctx context.Context) (*webscraper.WebPage, err
 	if err != nil {
 		return nil, err
 	}
+
+	f.Cookies = f.client.GetCookies(BaseURL)
 
 	page := webscraper.NewWebPage(BaseURL, f.client, f.logger)
 
@@ -355,10 +359,32 @@ func (f *Fetcher) executeLastPageRequest(ctx context.Context) (int64, error) {
 func (f *Fetcher) doPaginationRequest(ctx context.Context, eventArgument string) (*webscraper.WebPage, error) {
 	params := f.getPostRequestParams(eventArgument, PaginationEventTarget)
 
-	response, err := f.client.Post(ctx, BaseURL, nil, params)
+	headers := http.Header{}
+	headers.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8")
+	headers.Set("Accept-Encoding", "gzip, deflate")
+	headers.Set("Accept-Language", "en-US,en;q=0.5")
+	headers.Set("Cache-Control", "max-age=0")
+	headers.Set("Connection", "keep-alive")
+	headers.Set("Content-Length", "61166")
+	headers.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	if f.Cookies != "" {
+		headers.Set("Cookie", f.Cookies)
+	}
+
+	headers.Set("Host", "sicc.honducompras.gob.hn")
+	headers.Set("Origin", "http://sicc.honducompras.gob.hn")
+	headers.Set("Referer", BaseURL)
+	headers.Set("Sec-GPC", "1")
+	headers.Set("Upgrade-Insecure-Requests", "1")
+	headers.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36")
+
+	response, err := f.client.Post(ctx, BaseURL, headers, params)
 	if err != nil {
 		return nil, err
 	}
+
+	f.Cookies = f.client.GetCookies(BaseURL)
 
 	page := webscraper.NewWebPage(BaseURL, f.client, f.logger)
 

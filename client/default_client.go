@@ -22,7 +22,7 @@ var (
 	// DefaultRoundTripper for the client
 	DefaultRoundTripper http.RoundTripper
 
-	httpClientTimeout = time.Duration(env.GetInt64("HTTP_CLIENT_TIMEOUT", 30)) * time.Second
+	httpClientTimeout time.Duration
 
 	httpClientRetries = int(env.GetInt64("HTTP_CLIENT_RETRIES", 3))
 
@@ -37,7 +37,7 @@ var (
 )
 
 func init() {
-	configTimeout, _ := strconv.Atoi(env.GetString("HTTP_CLIENT_TIMEOUT", "15"))
+	configTimeout, _ := strconv.Atoi(env.GetString("HTTP_CLIENT_TIMEOUT", "30"))
 	if configTimeout > 0 {
 		httpClientTimeout = time.Duration(configTimeout) * time.Second
 	}

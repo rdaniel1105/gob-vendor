@@ -25,14 +25,30 @@ var (
 	errGoDotenvLoad = errors.New("error loading .env file")
 )
 
-func processAllPages(ctx context.Context, pages int64) error {
-	errChan := make(chan error)
+func processAllPages(ctx context.Context, pages int64, initialState collector.SessionState) error {
+	stateChan := make(chan collector.SessionState, 50)
+
+	stateChan <- initialState
+
+	errChan := make(chan error, pages)
 	semaphore := make(chan struct{}, maxPaginationConcurrency)
 	wg := sync.WaitGroup{}
+
+	var currentState collector.SessionState
+	var stateMu sync.Mutex
+
+	go func() {
+		for state := range stateChan {
+			stateMu.Lock()
+			currentState = state
+			stateMu.Unlock()
+		}
+	}()
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		defer close(stateChan)
 
 		for i := int64(2); i <= pages; i++ {
 			wg.Add(1)
@@ -52,6 +68,7 @@ func processAllPages(ctx context.Context, pages int64) error {
 				fetcher, err := collector.NewFetcher(
 					collector.PaginationEventTarget,
 					fmt.Sprintf(collector.PaginationEventArgument, pageNum),
+					pageNum,
 					collector.AdquisitionTypeServicesAndGoods,
 					collector.AdquisitionStageReceivedOffersType,
 					collector.AdquisitionCategoryMinorPurchaseType,
@@ -63,7 +80,17 @@ func processAllPages(ctx context.Context, pages int64) error {
 					return
 				}
 
-				err = fetcher.Execute(ctx, pageNum)
+				fetcher.SessionStateChan = stateChan
+
+				stateMu.Lock()
+				state := currentState
+				stateMu.Unlock()
+
+				fetcher.ViewState = state.ViewState
+				fetcher.ViewStateGenerator = state.ViewStateGenerator
+				fetcher.EventValidation = state.EventValidation
+
+				err = fetcher.Execute(ctx)
 				if err != nil {
 					errChan <- fmt.Errorf("error fetching page %d: %w", pageNum, err)
 				}
@@ -115,6 +142,7 @@ func main() {
 	fetcher, err := collector.NewFetcher(
 		"",
 		"",
+		1,
 		adquisitionType,
 		adquisitionStage,
 		adquisitionCategory,
@@ -125,12 +153,19 @@ func main() {
 		panic(err)
 	}
 
-	err = fetcher.Execute(ctx, 1)
+	err = fetcher.Execute(ctx)
 	if err != nil {
 		slog.Error("error_fetching_data", "error", err)
+		return
 	}
 
-	err = processAllPages(ctx, fetcher.GetPages())
+	initialState := collector.SessionState{
+		ViewState:          fetcher.ViewState,
+		ViewStateGenerator: fetcher.ViewStateGenerator,
+		EventValidation:    fetcher.EventValidation,
+	}
+
+	err = processAllPages(ctx, fetcher.GetPages(), initialState)
 	if err != nil {
 		slog.Error("error_processing_pages", "error", err)
 	}

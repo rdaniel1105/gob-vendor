@@ -167,30 +167,30 @@ func setData(page *webscraper.WebPage, pageNumber int64) (*Detail, error) {
 	generalData := page.GetElementsBySelector(generalTableSelector)
 
 	var (
-		idUNSPSC       string
-		description    string
-		specifications string
-		quantity       string
+		idUNSPSCs      []string
+		descriptions   []string
+		specifications []string
+		quantities     []string
 	)
 
 	idUNSPSCElements := page.GetElementsBySelector(detailUNSPSCSelector)
 	if len(idUNSPSCElements) > 0 {
-		idUNSPSC = idUNSPSCElements[0].Text()
+		idUNSPSCs = appendGoQueryStrSelections(idUNSPSCElements)
 	}
 
 	descriptionElements := page.GetElementsBySelector(detailDescriptionSelector)
 	if len(descriptionElements) > 0 {
-		description = descriptionElements[0].Text()
+		descriptions = appendGoQueryStrSelections(descriptionElements)
 	}
 
 	specificationsElements := page.GetElementsBySelector(detailSpecificationsSelector)
 	if len(specificationsElements) > 0 {
-		specifications = specificationsElements[0].Text()
+		specifications = appendGoQueryStrSelections(specificationsElements)
 	}
 
 	quantityElements := page.GetElementsBySelector(detailQuantitySelector)
 	if len(quantityElements) > 0 {
-		quantity = quantityElements[0].Text()
+		quantities = appendGoQueryStrSelections(quantityElements)
 	}
 
 	startDate, err := getDate(getGeneralDataFieldText(generalData, detailGeneralDataValueSelector, 4))
@@ -227,14 +227,34 @@ func setData(page *webscraper.WebPage, pageNumber int64) (*Detail, error) {
 		ContactName:     getGeneralDataFieldText(generalData, detailContactNameSelector, 14),
 		ContactPhone:    getGeneralDataFieldText(generalData, detailContactPhoneSelector, 14),
 		ContactEmail:    getGeneralDataFieldText(generalData, detailContactEmailSelector, 14),
-		IDUNSPSC:        idUNSPSC,
-		Description:     description,
+		IDUNSPSCs:       idUNSPSCs,
+		Descriptions:    descriptions,
 		Specifications:  specifications,
-		Quantity:        strToFloat(quantity),
+		Quantities:      convertStrToFloatArray(quantities),
 		Page:            pageNumber,
 	}
 
 	return detail, nil
+}
+
+func appendGoQueryStrSelections(selections []*goquery.Selection) []string {
+	results := make([]string, 0, len(selections))
+
+	for _, selection := range selections {
+		results = append(results, selection.Text())
+	}
+
+	return results
+}
+
+func convertStrToFloatArray(strArray []string) []float64 {
+	results := make([]float64, 0, len(strArray))
+
+	for _, str := range strArray {
+		results = append(results, strToFloat(str))
+	}
+
+	return results
 }
 
 func getGeneralDataFieldText(generalData []*goquery.Selection, selector string, index int) string {

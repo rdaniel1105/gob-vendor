@@ -76,10 +76,10 @@ type Detail struct {
 	ContactPhone    string              `json:"contact_phone"`
 	ContactEmail    string              `json:"contact_email"`
 
-	IDUNSPSC       string  `json:"id_unspec"`
-	Description    string  `json:"description"`
-	Specifications string  `json:"specifications"`
-	Quantity       float64 `json:"quantity"`
+	IDUNSPSCs      []string  `json:"id_unspecs"`
+	Descriptions   []string  `json:"descriptions"`
+	Specifications []string  `json:"specifications"`
+	Quantities     []float64 `json:"quantities"`
 
 	Page int64 `json:"page"`
 }

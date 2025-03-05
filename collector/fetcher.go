@@ -24,7 +24,8 @@ const (
 	viewStateParam          = "__VIEWSTATE"
 	eventValidationParam    = "__EVENTVALIDATION"
 
-	lastPageEventArgument = "Page$Last"
+	lastPageEventArgument  = "Page$Last"
+	firstPageEventArgument = "Page$First"
 
 	// PaginationEventTarget is the target for the pagination event
 	PaginationEventTarget = "ctl00$cphCuerpo$gvResultados"
@@ -103,17 +104,26 @@ type Fetcher struct {
 	client              *client.Client
 	logger              *slog.Logger
 	pages               int64
-	viewStateGenerator  string
-	viewState           string
-	eventValidation     string
+	pageNumber          int64
+	ViewStateGenerator  string
+	ViewState           string
+	EventValidation     string
 	eventTarget         string
 	eventArgument       string
 	Cookies             string
+	SessionStateChan    chan SessionState
+}
+
+type SessionState struct {
+	ViewState          string
+	ViewStateGenerator string
+	EventValidation    string
 }
 
 func NewFetcher(
 	eventTarget string,
 	eventArgument string,
+	pageNumber int64,
 	adquisitionType AdquisitionType,
 	adquisitionStage AdquisitionStage,
 	adquisitionCategory AdquisitionCategory,
@@ -143,6 +153,7 @@ func NewFetcher(
 		adquisitionCategory: adquisitionCategoryValue,
 		client:              client,
 		logger:              logger,
+		pageNumber:          pageNumber,
 	}, nil
 }
 
@@ -157,27 +168,37 @@ func setCredentials() {
 	password = env.GetString("ZINCSEARCH_PASSWORD", "")
 }
 
-func (f *Fetcher) Execute(ctx context.Context, pageNumber int64) error {
+func (f *Fetcher) Execute(ctx context.Context) error {
 	setCredentialsOnce.Do(setCredentials)
 
-	err := f.doInintialRequest(ctx)
-	if err != nil {
-		return err
-	}
+	var resultsPage *webscraper.WebPage
+	var err error
 
-	resultsPage, err := f.doSearchRequest(ctx)
-	if err != nil {
-		return err
-	}
+	if f.pageNumber == 1 {
+		err = f.doInintialRequest(ctx)
+		if err != nil {
+			return err
+		}
 
-	if pageNumber > 1 {
-		resultsPage, err = f.doPaginationRequest(ctx, fmt.Sprintf(PaginationEventArgument, pageNumber))
+		resultsPage, err = f.doSearchRequest(ctx)
+		if err != nil {
+			return err
+		}
+	} else {
+		if f.pageNumber == 2 {
+			err = f.executeFirstPageRequest(ctx)
+			if err != nil {
+				return err
+			}
+		}
+
+		resultsPage, err = f.doPaginationRequest(ctx, fmt.Sprintf(PaginationEventArgument, f.pageNumber))
 		if err != nil {
 			return err
 		}
 	}
 
-	details, err := f.getPageDetails(ctx, resultsPage, pageNumber)
+	details, err := f.getPageDetails(ctx, resultsPage, f.pageNumber)
 	if err != nil {
 		return err
 	}
@@ -260,9 +281,9 @@ func (f *Fetcher) getPageDetails(ctx context.Context, page *webscraper.WebPage, 
 			startDate,
 			endDate,
 			url,
-			f.viewState,
-			f.eventValidation,
-			f.viewStateGenerator,
+			f.ViewState,
+			f.EventValidation,
+			f.ViewStateGenerator,
 			pageNumber,
 		))
 	}
@@ -296,9 +317,9 @@ func (f *Fetcher) getPostRequestParams(eventArgument, eventTarget string) url.Va
 	params.Set("__EVENTTARGET", eventTarget)
 	params.Set("__EVENTARGUMENT", eventArgument)
 	params.Set("__LASTFOCUS", "")
-	params.Set("__VIEWSTATE", f.viewState)
-	params.Set("__VIEWSTATEGENERATOR", f.viewStateGenerator)
-	params.Set("__EVENTVALIDATION", f.eventValidation)
+	params.Set("__VIEWSTATE", f.ViewState)
+	params.Set("__VIEWSTATEGENERATOR", f.ViewStateGenerator)
+	params.Set("__EVENTVALIDATION", f.EventValidation)
 	params.Set("ctl00$cphCuerpo$wpParametros_hidden", "")
 	params.Set("ctl00$cphCuerpo$wpParametros$ddlEntidades", "0")
 	params.Set("ctl00$cphCuerpo$wpParametros$ddlUC", "0")
@@ -356,6 +377,15 @@ func (f *Fetcher) executeLastPageRequest(ctx context.Context) (int64, error) {
 	return strconv.ParseInt(pages[len(pages)-1].Text(), 10, 64)
 }
 
+func (f *Fetcher) executeFirstPageRequest(ctx context.Context) error {
+	_, err := f.doPaginationRequest(ctx, firstPageEventArgument)
+	if err != nil {
+		return err
+	}
+
+	return err
+}
+
 func (f *Fetcher) doPaginationRequest(ctx context.Context, eventArgument string) (*webscraper.WebPage, error) {
 	params := f.getPostRequestParams(eventArgument, PaginationEventTarget)
 
@@ -365,14 +395,7 @@ func (f *Fetcher) doPaginationRequest(ctx context.Context, eventArgument string)
 	headers.Set("Accept-Language", "en-US,en;q=0.5")
 	headers.Set("Cache-Control", "max-age=0")
 	headers.Set("Connection", "keep-alive")
-	headers.Set("Content-Length", "61166")
 	headers.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	if f.Cookies != "" {
-		headers.Set("Cookie", f.Cookies)
-	}
-
-	headers.Set("Host", "sicc.honducompras.gob.hn")
 	headers.Set("Origin", "http://sicc.honducompras.gob.hn")
 	headers.Set("Referer", BaseURL)
 	headers.Set("Sec-GPC", "1")
@@ -397,6 +420,18 @@ func (f *Fetcher) doPaginationRequest(ctx context.Context, eventArgument string)
 		return nil, err
 	}
 
+	if f.pageNumber != 1 && f.SessionStateChan != nil {
+		select {
+		case f.SessionStateChan <- SessionState{
+			ViewState:          f.ViewState,
+			ViewStateGenerator: f.ViewStateGenerator,
+			EventValidation:    f.EventValidation,
+		}:
+		default:
+			f.logger.Debug("could not send session state to channel")
+		}
+	}
+
 	return &page, nil
 }
 
@@ -416,9 +451,9 @@ func (f *Fetcher) setParamsFromPage(page *webscraper.WebPage) error {
 		return err
 	}
 
-	f.viewStateGenerator = viewStateGenerator
-	f.viewState = viewState
-	f.eventValidation = eventValidation
+	f.ViewStateGenerator = viewStateGenerator
+	f.ViewState = viewState
+	f.EventValidation = eventValidation
 
 	return nil
 }

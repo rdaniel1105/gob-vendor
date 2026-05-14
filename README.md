@@ -29,7 +29,7 @@ main.go
 
 ## Requirements
 
-- Go 1.23+
+- Go 1.26+
 - (optional) A running [ZincSearch](https://github.com/zincsearch/zincsearch) instance if you want full-text indexing
 
 ## Configuration

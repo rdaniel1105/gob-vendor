@@ -105,7 +105,7 @@ func (m *ProxyManager) ProxyForRequest(req *http.Request) (*url.URL, error) {
 // If the proxyURL specified is nil, a random proxy is chosen.
 // If no proxies are available, returns the same request and nil proxy.
 func (m *ProxyManager) SetProxyInRequest(req *http.Request, proxyURL *url.URL) (*http.Request, *url.URL) {
-	if strings.HasSuffix(req.Host, "amazonaws.com") || strings.HasSuffix(req.Host, "example.com") {
+	if strings.HasSuffix(req.Host, "amazonaws.com") {
 		return req, nil
 	}
 

@@ -1,1 +1,5 @@
 .env
+
+# Locally captured fixtures from the target site (do not commit real scraped data)
+collector/samples/
+*.xlsx
